@@ -1,0 +1,444 @@
+---
+title: "Dancing Through the Years: A Data-Driven Look at Taylor Swift's Music"
+author: "Scott Monaco"
+editor: visual
+subtitle: "Looking at the W. Jake Thompson's curated data-set of Taylor Swift songs as a part of #TidyTuesday (Oct 10, 2023)"
+date: "2023-10-18"
+image: "taylor_swift.png"
+format:
+  html:
+    theme: simplex
+editor_options: 
+  chunk_output_type: console
+execute: 
+  error: false
+  message: false
+  warning: false
+  code-fold: true
+bibliography: references.bib
+share:
+  permalink: "https://monacosc1.github.io/projects/presentations/taylor_swift.html"
+  description: "Dancing Through the Years: A Data-Driven Look at Taylor Swift's Music"
+  twitter: true
+  linkedin: true
+  email: true
+  mastodon: true
+---
+
+## Step 1: Data Import
+
+Getting the data from [TidyTuesday](https://github.com/rfordatascience/tidytuesday/blob/master/data/2023/2023-10-17/readme.md) Retrieve the data originally from the [`taylor`](https://taylor.wjakethompson.com/) `R` package from [W. Jake Thompson](https://www.wjakethompson.com/) is a curated data set of Taylor Swift songs, including lyrics and audio characteristics. The data comes from Genius and the Spotify API.
+
+```{r}
+#| label: setup
+#| error: false
+#| warning: false
+#| message: false
+#| code-fold: true
+
+library(tidyverse)       # Data Wrangling and Visualization
+library(visdat)          # View data in Exploratory Data Analysis
+library(gganimate)       # For animation
+library(transformr)      # to smoothly animate polygons and paths
+
+# Using Option 2: Read data directly from GitHub
+
+taylor_album_songs <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2023/2023-10-17/taylor_album_songs.csv')
+taylor_all_songs <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2023/2023-10-17/taylor_all_songs.csv')
+taylor_albums <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2023/2023-10-17/taylor_albums.csv')
+```
+
+## Step 2: Some Exploratory Data Analysis
+
+```{r}
+#| code-fold: true
+
+
+# Since all songs of Taylor Swift occur in taylor_all_songs, let us
+# focus on that data set only for now
+taylor_album_songs |> 
+  anti_join(taylor_all_songs)
+
+# Seeing the number of distinct values for each variable
+taylor_all_songs |> 
+  summarise(across(.cols = everything(),
+                .fns = n_distinct)) |> 
+  pivot_longer(cols = everything(),
+               names_to = "Variable",
+               values_to = "n_distinct")
+```
+
+Using a popular function `vis_dat()` to see the structure of the data: --
+
+```{r}
+#| code-fold: true
+
+
+# Vis_dat the data
+taylor_all_songs |> 
+  vis_dat()
+```
+
+And, seeing the change in different song characteristics over time: --
+
+```{r}
+#| fig-width: 10
+#| code-fold: true
+
+
+# We see the patterns over time for different variables of her 
+# songs to see any distinct patterns
+taylor_all_songs |>
+  select(album_name, track_name, track_release,
+         danceability:duration_ms) |> 
+  pivot_longer(cols = -c(album_name, track_name, track_release),
+               names_to = "indicator",
+               values_to = "value") |> 
+  ggplot(aes(x = track_release,
+             y = value)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~ indicator, scales = "free") +
+  theme_classic()
+
+```
+
+Creating a static graph which we will animate later, and setting the `span` parameter for loess smoother: --
+
+```{r}
+#| code-fold: true
+
+
+#define span to use
+span_taylor = 0.75
+
+# Take the taylor_all_songs data frame and select specific columns:
+taylor_all_songs |> 
+  select(album_name,
+         track_release,
+         danceability, 
+         acousticness) |> 
+
+# Pivot the selected columns into a longer format with "indicators" and "values" columns:
+  pivot_longer(cols = -c(album_name, track_release),
+               names_to = "indicators",
+               values_to = "values") |>
+
+# Create a ggplot visualization, setting aesthetics and geometries:
+  ggplot(aes(x = track_release,
+             y = values,
+             col = indicators,
+             label = indicators)) +
+
+# Add jittered points to the plot with specified width, height, and alpha:
+  geom_jitter(width = 20, 
+              height = 0.001, 
+              alpha = 0.2) +
+
+# Add a smoothed line to the plot with specified span, se, and alpha:
+  geom_smooth(span = span_taylor, 
+              se = FALSE,
+              alpha = 0.6,
+              lwd = 1.2) +
+
+# Add text labels to the plot, referencing data from taylor_albums:
+  geom_text(data = taylor_albums, 
+             mapping = aes(x = album_release,
+                           y = 0,
+                           label = album_name),
+             col = "black",
+             angle = 90, 
+            hjust = "left") +
+
+# Apply a minimal theme to the plot:
+  theme_minimal() +
+
+# Customize the x-axis labels using breaks and formatted labels:
+  scale_x_continuous(breaks = taylor_albums$album_release,
+                     labels = format(taylor_albums$album_release, 
+                                     "%b %Y")) +
+
+# Using color palettes from the tayloRswift package for Taylor Swift's albums:
+  tayloRswift::scale_color_taylor(palette = "lover") +
+
+# Add labels and customize the appearance of the plot:
+  labs(x = NULL,
+       y = "Spotify App Score for songs",
+       color = NULL) +
+
+# Further customize the appearance of the plot using theme settings:
+  theme(axis.text.x = element_text(angle = 90),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank(), 
+        legend.position = "bottom")
+```
+
+## Step 3: Creating an animated plot
+
+```{r}
+#| eval: true
+#| code-fold: true
+
+
+#define span to use
+span_taylor = 0.75
+
+# creating a loess predictor variable
+df <- taylor_all_songs |> 
+  select(album_name,
+         track_release,
+         danceability, 
+         acousticness) |> 
+  drop_na()
+  
+gganim <- df |> 
+  mutate(
+    smooth_dance = predict(loess(danceability ~ as.numeric(track_release), 
+                                data = df,
+                                span = span_taylor)),
+    smooth_acous = predict(loess(acousticness ~ as.numeric(track_release), 
+                                data = df,
+                                span = span_taylor))
+  ) |> 
+  pivot_longer(cols = starts_with("smooth"),
+               names_to = "smooth_indicator",
+               values_to = "value_smooth") |> 
+  ggplot(aes(x = track_release)) +
+  geom_jitter(aes(y = danceability,
+                  group = seq_along(track_release)),
+              width = 20, 
+              height = 0.001, 
+              alpha = 0.3,
+              size = 3,
+              color = "#54483e") +
+  geom_jitter(aes(y = acousticness,
+                  group = seq_along(track_release)),
+              width = 20, 
+              height = 0.001, 
+              alpha = 0.3,
+              size = 3,
+              color = "#b8396b") +
+  ggtext::geom_richtext(data = taylor_albums, 
+             mapping = aes(x = album_release,
+                           y = 0,
+                           label = album_name),
+             col = "black",
+             angle = 90, 
+            hjust = "left",
+            alpha = 0.8) +
+  geom_line(aes(y = value_smooth,
+                col = smooth_indicator),
+            alpha = 0.7,
+            lwd = 2) +
+  theme_minimal() +
+  
+  scale_x_continuous(breaks = taylor_albums$album_release,
+                     labels = format(taylor_albums$album_release, 
+                                     "%b %Y")) +
+  
+  # Using color palettes for package tayloRswift for her albums
+  tayloRswift::scale_color_taylor(palette = "lover",
+                                  labels = c("Acousticness",
+                                             "Danceability") ) +
+  
+  labs(x = NULL,
+       y = "Spotify App Score for songs",
+       color = NULL, 
+       title = "Taylor Swift's songs over the years",
+       subtitle = "After 2015: Increased Acousticness, reduced danceability",
+       caption = "Data: taylor R package (W. Jake Thompson). Animation: Aditya Dahiya #TidyTuesday") +
+  
+  theme(axis.text.x = element_text(angle = 90,
+                                   size = 10),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank(), 
+        legend.position = "bottom",
+        title = element_text(hjust = 0.5,
+                             size = 20),
+        legend.text = element_text(size = 20)) +
+
+  
+  transition_reveal(track_release) +
+  ease_aes("linear") +
+  shadow_mark(past = TRUE)
+
+animate(gganim, 
+        height = 600,
+        width = 800,
+        fps = 10, 
+        duration = 10,
+        start_pause = 3,
+        end_pause = 10)
+
+anim_save("./docs/taylor_anim1.gif")
+```
+
+![An animated line chart (with scatterplot in background) of Taylor Swift's songs' acousticness and danceability. The names of albums and release dates are on the bottom x-axis.](./docs/taylor_anim1.gif)
+
+------------------------------------------------------------------------
+
+## Step 4: Exploring further for any interesting correlations
+
+```{r}
+#| fig-width: 10
+#| code-fold: true
+
+
+vars = c("danceability", "energy", "loudness",
+         "speechiness", "acousticness", "instrumentalness",
+         "valence", "tempo", "duration_ms")
+
+# Select some variables to examine relations
+taylor_all_songs |> 
+  select(all_of(vars)) |> 
+  GGally::ggpairs()
+```
+
+#### Lets re-focus on danceability and acoustics: --
+
+```{r}
+#| code-fold: true
+
+
+taylor_all_songs |> 
+  select(album_name, track_name, track_release,
+         danceability, acousticness) |> 
+  mutate(era = if_else(track_release < ymd("2015-01-01"),
+                       "Earlier Era",
+                       "Recent Era")) |> 
+  ggplot(aes(y = acousticness,
+             x = danceability)) +
+  geom_point(aes(group = era,
+                 col = era),
+             alpha = 0.75) +
+  geom_smooth(aes(group = era,
+                  col = era),
+              se = FALSE) +
+  theme_minimal()
+```
+
+#### Trying Cluster Analysis, with some interesting results!
+
+```{r}
+#| code-fold: true
+
+
+taylor1 <- taylor_all_songs |> 
+  select(album_name, track_name, album_release,
+         danceability, acousticness, energy, loudness, 
+         speechiness, instrumentalness, tempo) |> 
+  drop_na()
+
+taylor_cluster <- taylor1 |>
+  select(danceability, acousticness) |> 
+  as.matrix() |> 
+  kmeans(x = _, centers = 2)
+
+taylor1 |> 
+  mutate(cluster = as_factor(taylor_cluster$cluster)) |> 
+  mutate(era = if_else(album_release < ymd("2013-01-01"),
+                       "Pre-2015",
+                       "Post-2015")) |> 
+  ggplot(aes(y = acousticness,
+             x = danceability)) +
+  geom_smooth(se = F,
+              method = "lm",
+              col = "grey",
+              alpha = 0.2,
+              lwd = 2) +
+  geom_point(aes(col = cluster),
+             alpha = 0.5,
+             size = 2) +
+  facet_wrap(~ fct(era,
+                   levels = c("Pre-2015", "Post-2015"))) +
+  theme_classic() +
+  theme(legend.position = "bottom") +
+  # Using color palettes for package tayloRswift
+  tayloRswift::scale_color_taylor(
+    palette = "lover",
+    labels = c("Danceability",
+               "Acousticness")) +
+  labs(x = "Danceability Score (Spotify)",
+       y = "Acousticness Score (Spotify)",
+       col = "Songs with higher: ")
+```
+
+## Step 5: Lastly, the second animation: --
+
+```{r}
+#| eval: true
+#| code-fold: true
+
+
+
+library(magick)
+img <- image_read("../docs/taylor_jpeg.jpg") |> 
+  image_colorize(opacity = 80,
+                 color = "white")
+  
+anim3 <- taylor1 |> 
+  mutate(
+    cluster = as_factor(taylor_cluster$cluster),
+    album_name = fct_reorder(fct(album_name),
+                             .x = album_release)
+  ) |> 
+  ggplot(aes(y = acousticness,
+             x = danceability)) +
+  annotation_raster(img,
+                    xmin = -Inf, xmax = Inf,
+                    ymin = -Inf, ymax = Inf) +
+  geom_point(aes(col = cluster),
+             alpha = 0.9,
+             size = 4,
+             shape = 19) +
+  geom_text(aes(label = paste0(month(album_release, 
+                                     label = TRUE), 
+                               ", ", 
+                               year(album_release)),
+                x = 0.25, y = 0.8
+                ),
+            hjust = "left",
+            size = 5
+            ) +
+  geom_text(aes(label = album_name,
+                x = 0.25, y = 0.95),
+            hjust = "left",
+            size = 8) +
+  facet_wrap(~ album_release) +
+  facet_null() +
+  scale_color_manual(values = c("#54483e",
+                                "#b8396b"),
+                     labels = c("Danceability",
+                                "Acousticness")) +
+  labs(x = "Danceability Score (Spotify)",
+       y = "Acousticness Score (Spotify)",
+       col = "Songs with higher: ",
+       title = "Acoustics and Danceability in Taylor Swift's songs",
+       subtitle = "Albums \"folklore\" and \"evermore\" were different from all other albums") +
+  theme_minimal() +
+  theme(legend.position = "bottom",
+        plot.title.position = "plot",
+        title = element_text(size = 15),
+        legend.text = element_text(size = 15)) +
+  transition_states(states = album_release,
+                    transition_length = 6,
+                    state_length = 2) +
+  enter_fade() +
+  exit_fade()
+
+animate(anim3,
+        height = 350,
+        width = 470,
+        duration = 20,
+        fps = 10,
+        end_pause = 3,
+        start_pause = 1)
+
+anim_save("./docs/taylor_anim2.gif")
+```
+
+![](./docs/taylor_anim2.gif)
+
+## **Step 6? Future Plan**
+
+Adding a time bar below the animated plot! Thanks in anticipation!
