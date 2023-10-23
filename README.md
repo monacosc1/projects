@@ -8,3 +8,7 @@
 
 ***
 
+## Complete Projects
+
+- Check out the [Taylor Swift site](https://monacosc1.github.io/projects/presentations/taylor_swift.html).
+
